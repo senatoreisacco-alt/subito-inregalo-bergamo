@@ -7,18 +7,20 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-# === CONFIG (legge da env, fallback su valore di default dove sensato) ===
-SEARCH_URL = os.environ.get("SEARCH_URL", "https://www.subito.it/annunci-lombardia/regalo/usato/bergamo/?q=&from=mysearches&order=datedesc")
-SEEN_FILE = os.environ.get("SEEN_FILE", "seen.json")
-GMAIL_USER = os.environ.get("GMAIL_USER", "senatore.isacco@gmail.com")
-GMAIL_PASSWORD = os.environ.get("cstl bacj sedv zltq")  # **obbligatoria** (App Password)
-RECIPIENT = os.environ.get("RECIPIENT", GMAIL_USER)
-
-# parole da escludere (animali)
-EXCLUDE_KEYWORDS = ["cani", "gatti", "cuccioli", "gatto", "cane", "criceti", "conigli", "uccelli", "pesci", "cavalli", "pet", "gabbia", "guinzaglio", "cuccia", "acquario", "gattin"]
-
+# -------------------
+# CONFIGURAZIONE
+# -------------------
+GMAIL_USER = "senatore.isacco@gmail.com"
+GMAIL_PASSWORD = "cstlbacjsedvzltq"  # App Password Gmail
+RECIPIENT = GMAIL_USER
+SEARCH_URL = "https://www.subito.it/annunci-lombardia/regalo/usato/bergamo/?q=&from=mysearches&order=datedesc"
+SEEN_FILE = "seen.json"
+EXCLUDE_KEYWORDS = ["cane", "cani", "gatto", "gatti", "cucciolo", "cuccioli", "animali"]
 HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; SubitoAlert/1.0)"}
 
+# -------------------
+# FUNZIONI
+# -------------------
 def send_email(subject, body):
     msg = MIMEMultipart()
     msg["From"] = GMAIL_USER
@@ -34,7 +36,7 @@ def load_seen():
         try:
             with open(SEEN_FILE, "r") as f:
                 return set(json.load(f))
-        except Exception:
+        except:
             return set()
     return set()
 
@@ -43,12 +45,11 @@ def save_seen(seen):
         json.dump(list(seen), f)
 
 def fetch_announcements():
-    resp = requests.get(SEARCH_URL, headers=HEADERS, timeout=15)
-    resp.raise_for_status()
-    soup = BeautifulSoup(resp.text, "html.parser")
-
+    print(f"Parsing URL: {SEARCH_URL}")
+    r = requests.get(SEARCH_URL, headers=HEADERS, timeout=15)
+    r.raise_for_status()
+    soup = BeautifulSoup(r.text, "html.parser")
     ads = []
-    # fallback generico: cerca link dentro della pagina che sembrano annunci
     for a in soup.find_all("a", href=True):
         href = a["href"]
         if href.startswith("https://www.subito.it/") and "/annunci/" in href:
@@ -58,9 +59,8 @@ def fetch_announcements():
             t = title.lower()
             if any(k in t for k in EXCLUDE_KEYWORDS):
                 continue
-            ads.append((t, href))
-
-    # deduplica preservando ordine
+            ads.append((title, href))
+    print(f"Trovati {len(ads)} annunci totali dopo filtro animali")
     seen_urls = set()
     dedup = []
     for t, u in ads:
@@ -69,31 +69,33 @@ def fetch_announcements():
             seen_urls.add(u)
     return dedup
 
+# -------------------
+# MAIN
+# -------------------
 def main():
-    if not GMAIL_PASSWORD:
-        print("ERRORE: la variabile d'ambiente GMAIL_PASSWORD non è settata.")
-        return
-
+    print("Esecuzione script Subito Alert")
     seen = load_seen()
     new_ads = []
-
     for title, url in fetch_announcements():
         if url not in seen:
             new_ads.append((title, url))
             seen.add(url)
+    save_seen(seen)
 
     if new_ads:
         body = "\n\n".join([f"{title}\n{url}" for title, url in new_ads])
         subject = f"Nuovi annunci 'In regalo' - Bergamo ({len(new_ads)})"
-        try:
-            send_email(subject, body)
-            print(f"Inviata email con {len(new_ads)} annunci.")
-        except Exception as e:
-            print("Invio email fallito:", e)
+        print(f"Nuovi annunci trovati: {len(new_ads)}")
     else:
-        print("Nessun nuovo annuncio trovato.")
+        body = "Nessun nuovo annuncio trovato in questa esecuzione."
+        subject = "Subito Alert - Nessun nuovo annuncio"
+        print("Nessun nuovo annuncio trovato")
 
-    save_seen(seen)
+    try:
+        send_email(subject, body)
+        print("Email inviata correttamente")
+    except Exception as e:
+        print("Invio email fallito:", e)
 
 if __name__ == "__main__":
     main()
